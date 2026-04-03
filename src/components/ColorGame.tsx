@@ -204,6 +204,12 @@ export function ColorGame() {
           >
             Score
           </Link>
+          <Link
+            href="/lab"
+            className="transition-colors duration-[350ms] hover:text-[var(--foreground)]"
+          >
+            Lab
+          </Link>
         </nav>
         <div className="flex items-center gap-3">
           <button
@@ -326,7 +332,7 @@ export function ColorGame() {
           >
             dialed.gg
           </a>
-          · Score perceptuel CIELAB · Projet démo
+          · Score CIELAB + CIEDE2000 (règles avr. 2026) · Projet démo
         </p>
       </footer>
     </div>
