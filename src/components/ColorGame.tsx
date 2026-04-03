@@ -24,8 +24,8 @@ type Phase =
   | "recall"
   | "results";
 
-const MEMORIZE_SECONDS = { easy: 300, hard: 120 };
-const DISPLAY_SWATCH_MS = { easy: 3500, hard: 1800 };
+/** Temps pour mémoriser chaque couleur (une par une), puis reconstitution. */
+const MEMORIZE_ROUND_SECONDS = { easy: 12, hard: 6 };
 
 function generateColors(seedStr: string): HSB[] {
   const rng = createSeededRandom(hashString(seedStr));
@@ -65,12 +65,12 @@ export function ColorGame() {
   const [playerName, setPlayerName] = useState("");
   const [roomId, setRoomId] = useState(() => roomFromUrl);
   const [colors, setColors] = useState<HSB[]>([]);
-  const [memorizeLeft, setMemorizeLeft] = useState(0);
+  /** 0–1 progression du temps de mémorisation pour la manche en cours */
+  const [memProgress, setMemProgress] = useState(0);
   const [roundIndex, setRoundIndex] = useState(0);
   const [guess, setGuess] = useState<HSB>({ h: 180, s: 50, b: 50 });
   const [roundScores, setRoundScores] = useState<number[]>([]);
   const [soundOn, setSoundOn] = useState(true);
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const soloSeedRef = useRef("");
 
   const startSolo = () => {
@@ -93,20 +93,17 @@ export function ColorGame() {
     if (!playerName.trim()) return;
     if (mode === "daily") {
       const cols = generateColors(`daily-${dailySeedString()}`);
-      setColors(cols);
-      beginMemorize(cols);
+      startGame(cols);
       return;
     }
     if (mode === "solo") {
       const cols = generateColors(soloSeedRef.current);
-      setColors(cols);
-      beginMemorize(cols);
+      startGame(cols);
       return;
     }
     if (mode === "multi" && roomId.trim()) {
       const cols = generateColors(`room-${roomId.trim()}`);
-      setColors(cols);
-      beginMemorize(cols);
+      startGame(cols);
     }
   };
 
@@ -114,7 +111,7 @@ export function ColorGame() {
     const id = generateRoomId();
     setRoomId(id);
     const cols = generateColors(`room-${id}`);
-    beginMemorize(cols);
+    startGame(cols);
   };
 
   const joinRoom = () => {
@@ -124,31 +121,32 @@ export function ColorGame() {
     setPhase("name");
   };
 
-  const beginMemorize = (cols: HSB[]) => {
+  const startGame = (cols: HSB[]) => {
     setColors(cols);
-    setPhase("memorize");
-    resetMemorizeTimer();
-  };
-
-  const resetMemorizeTimer = () => {
-    setMemorizeLeft(MEMORIZE_SECONDS[difficulty]);
     setRoundIndex(0);
     setRoundScores([]);
     setGuess({ h: 180, s: 50, b: 50 });
-    if (tickRef.current) clearInterval(tickRef.current);
-    tickRef.current = setInterval(() => {
-      setMemorizeLeft((s) => {
-        if (s <= 1) {
-          if (tickRef.current) clearInterval(tickRef.current);
-          setPhase("recall");
-          setRoundIndex(0);
-          playBeep(soundOn, 440);
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
+    setMemProgress(0);
+    setPhase("memorize");
   };
+
+  useEffect(() => {
+    if (phase !== "memorize" || !colors[roundIndex]) return;
+    const duration = MEMORIZE_ROUND_SECONDS[difficulty] * 1000;
+    const start = Date.now();
+    const tick = setInterval(() => {
+      setMemProgress(Math.min(1, (Date.now() - start) / duration));
+    }, 50);
+    const done = setTimeout(() => {
+      setPhase("recall");
+      setGuess({ h: 180, s: 50, b: 50 });
+      playBeep(soundOn, 440);
+    }, duration);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(done);
+    };
+  }, [phase, roundIndex, difficulty, colors, soundOn]);
 
   const submitRound = useCallback(() => {
     if (!colors[roundIndex]) return;
@@ -162,12 +160,13 @@ export function ColorGame() {
     }
     setRoundIndex((i) => i + 1);
     setGuess({ h: 180, s: 50, b: 50 });
+    setMemProgress(0);
+    setPhase("memorize");
   }, [colors, roundIndex, guess, soundOn]);
 
   const totalScore = roundScores.reduce((a, b) => a + b, 0);
 
   const resetHome = () => {
-    if (tickRef.current) clearInterval(tickRef.current);
     setPhase("home");
     setColors([]);
     setRoundScores([]);
@@ -256,27 +255,27 @@ export function ColorGame() {
             />
           )}
 
-          {phase === "memorize" && (
-            <MemorizePanel
-              colors={colors}
-              secondsLeft={memorizeLeft}
+          {phase === "memorize" && colors[roundIndex] && (
+            <MemorizeRoundPanel
+              key={`mem-${roundIndex}`}
+              color={colors[roundIndex]}
+              roundIndex={roundIndex}
+              memProgress={memProgress}
               difficulty={difficulty}
               onSkip={() => {
-                if (tickRef.current) clearInterval(tickRef.current);
                 setPhase("recall");
-                setRoundIndex(0);
+                setGuess({ h: 180, s: 50, b: 50 });
+                playBeep(soundOn, 520);
               }}
             />
           )}
 
           {phase === "recall" && colors[roundIndex] && (
             <RecallPanel
-              key={roundIndex}
+              key={`rec-${roundIndex}`}
               roundIndex={roundIndex}
-              target={colors[roundIndex]}
               guess={guess}
               onGuess={setGuess}
-              difficulty={difficulty}
               onSubmit={submitRound}
             />
           )}
@@ -299,11 +298,15 @@ export function ColorGame() {
         >
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)]/80 p-8 backdrop-blur-md transition-[background-color,border-color] duration-[350ms]">
             <p className="font-display text-4xl font-bold leading-none tracking-tight text-[var(--foreground)]">
-              {phase === "recall" ? roundIndex + 1 : "—"}
+              {phase === "memorize" || phase === "recall" ? roundIndex + 1 : "—"}
               <span className="text-[var(--muted)]">/5</span>
             </p>
             <p className="mt-2 text-sm text-[var(--muted)]">
-              Manche · mémoire des teintes
+              {phase === "memorize"
+                ? "Mémorise · compte à rebours"
+                : phase === "recall"
+                  ? "Reconstitue · curseurs"
+                  : "Manche à manche"}
             </p>
             <div className="mt-8 space-y-4 border-t border-[var(--border)] pt-8">
               <Stat label="Mode" value={modeLabel(mode)} />
@@ -382,8 +385,9 @@ function HomePanel({
         sont justes ?
       </h1>
       <p className="mt-8 max-w-lg text-lg leading-relaxed text-[var(--muted)] transition-colors duration-[350ms]">
-        Cinq couleurs affichées, puis tu les reconstitues en HSB. Le score suit
-        la perception humaine — pas seulement les chiffres des curseurs.
+        Cinq manches : pour chaque couleur, un temps pour la mémoriser avec le
+        compte à rebours, puis tu la reconstitues en HSB — dans l’ordre, une à
+        une. Le score suit la perception humaine.
       </p>
 
       <div className="mt-10 flex flex-wrap gap-3">
@@ -529,8 +533,9 @@ function RoomPanel({
         Multijoueur
       </h2>
       <p className="mt-6 max-w-lg text-[var(--muted)]">
-        La même graine pour tous : partage le lien, chacun joue les mêmes cinq
-        couleurs et compare les scores.
+        La même graine pour tous : partage le lien, chacun enchaîne les cinq
+        couleurs dans le même ordre (mémorisation puis reconstitution) et compare
+        les scores.
       </p>
       <div className="mt-10 flex flex-col gap-4 sm:flex-row">
         <button
@@ -581,60 +586,140 @@ function RoomPanel({
   );
 }
 
-function MemorizePanel({
-  colors,
-  secondsLeft,
+function RoundTimerRing({
+  progress,
+  size,
+}: {
+  progress: number;
+  size: number;
+}) {
+  const stroke = 4;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const offset = c * progress;
+  return (
+    <svg
+      width={size}
+      height={size}
+      className="shrink-0 text-[var(--accent)] [animation:timer-ring-pulse_2s_ease-in-out_infinite]"
+      style={{ transform: "rotate(-90deg)" }}
+      aria-hidden
+    >
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke="currentColor"
+        strokeOpacity={0.15}
+        strokeWidth={stroke}
+        className="text-[var(--foreground)]"
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={stroke}
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={offset}
+        className="transition-[stroke-dashoffset] duration-75 ease-linear"
+      />
+    </svg>
+  );
+}
+
+function RoundProgressDots({ roundIndex }: { roundIndex: number }) {
+  return (
+    <div className="flex justify-center gap-2" role="list" aria-label="Progression des manches">
+      {Array.from({ length: 5 }, (_, i) => (
+        <span
+          key={i}
+          role="listitem"
+          className={`h-2 rounded-full transition-all duration-500 ease-out ${
+            i < roundIndex
+              ? "w-8 bg-[var(--accent)]"
+              : i === roundIndex
+                ? "w-8 bg-[var(--foreground)] shadow-[0_0_12px_var(--accent-glow)]"
+                : "w-2 bg-[var(--border)]"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function MemorizeRoundPanel({
+  color,
+  roundIndex,
+  memProgress,
   difficulty,
   onSkip,
 }: {
-  colors: HSB[];
-  secondsLeft: number;
+  color: HSB;
+  roundIndex: number;
+  memProgress: number;
   difficulty: Difficulty;
   onSkip: () => void;
 }) {
+  const totalSec = MEMORIZE_ROUND_SECONDS[difficulty];
+  const secondsLeft = Math.max(0, Math.ceil((1 - memProgress) * totalSec));
+
   return (
-    <div className="opacity-100 transition-opacity duration-[400ms]">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[var(--accent)]">
-            Mémorise
-          </p>
-          <h2 className="mt-2 font-display text-3xl font-bold text-[var(--foreground)] md:text-4xl">
-            Les cinq couleurs
-          </h2>
+    <div className="game-panel-enter max-w-xl">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[var(--accent)]">
+        Mémorise
+      </p>
+      <h2 className="mt-2 font-display text-3xl font-bold text-[var(--foreground)] md:text-4xl">
+        Couleur {roundIndex + 1} sur 5
+      </h2>
+      <p className="mt-3 text-sm text-[var(--muted)]">
+        Imprime-la mentalement — ensuite tu la retrouveras sans l’aperçu.
+      </p>
+
+      <RoundProgressDots roundIndex={roundIndex} />
+
+      <div className="mt-10 flex flex-col items-center gap-10 sm:flex-row sm:items-center sm:justify-between sm:gap-12">
+        <div
+          className="game-swatch-enter relative aspect-square w-full max-w-[min(100%,320px)] overflow-hidden rounded-3xl border border-[var(--border)] shadow-[0_24px_48px_-16px_rgba(0,0,0,0.35)] ring-1 ring-black/5 transition-[transform,box-shadow] duration-500 ease-out hover:scale-[1.01] hover:shadow-[0_28px_56px_-12px_rgba(0,0,0,0.4)] dark:shadow-[0_24px_48px_-16px_rgba(255,85,0,0.12)] dark:ring-white/10"
+          style={{ backgroundColor: hsbToCss(color) }}
+        >
+          <span className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/[0.12] to-transparent" />
+          <span className="absolute bottom-4 left-4 rounded-full bg-black/35 px-3 py-1 font-mono text-[10px] font-medium text-white backdrop-blur-md">
+            {formatHsb(color)}
+          </span>
         </div>
-        <div className="font-mono text-4xl tabular-nums text-[var(--foreground)]">
-          {Math.floor(secondsLeft / 60)
-            .toString()
-            .padStart(2, "0")}
-          :
-          {(secondsLeft % 60).toString().padStart(2, "0")}
-        </div>
-      </div>
-      <div className="mt-12 grid grid-cols-2 gap-4 sm:grid-cols-5">
-        {colors.map((c, i) => (
-          <div
-            key={i}
-            className="group relative aspect-square overflow-hidden rounded-2xl border border-[var(--border)] shadow-lg transition-[transform] duration-[350ms] hover:scale-[1.02]"
-            style={{ backgroundColor: hsbToCss(c) }}
-          >
-            <span className="absolute bottom-3 left-3 font-mono text-[10px] font-medium text-white/90 mix-blend-difference">
-              {i + 1}
+
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative flex items-center justify-center">
+            <RoundTimerRing progress={memProgress} size={140} />
+            <span className="absolute font-display text-4xl tabular-nums tracking-tight text-[var(--foreground)]">
+              {secondsLeft}
+              <span className="text-lg text-[var(--muted)]">s</span>
             </span>
           </div>
-        ))}
+          <p className="max-w-[12rem] text-center text-[11px] uppercase tracking-[0.2em] text-[var(--muted)]">
+            Temps restant
+          </p>
+        </div>
       </div>
-      <p className="mt-10 max-w-xl text-sm text-[var(--muted)]">
+
+      <p className="mt-10 text-sm text-[var(--muted)]">
         {difficulty === "easy"
-          ? "Tu as jusqu’à cinq minutes pour les imprimer."
-          : "Deux minutes — reste concentré."}
+          ? "Plus de temps par couleur — idéal pour s’habituer au rythme."
+          : "Rythme serré : comme sur le jeu original, une couleur après l’autre."}
       </p>
       <button
         type="button"
         onClick={onSkip}
-        className="mt-10 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--accent)] transition-colors duration-[350ms] hover:text-[var(--foreground)]"
+        className="group mt-8 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--accent)] transition-[color,transform] duration-[350ms] hover:text-[var(--foreground)]"
       >
-        J’ai fini — passer à la reconstitution
+        <span className="transition-transform duration-[350ms] group-hover:translate-x-0.5">
+          J’ai retenu — passer à la reconstitution
+        </span>
+        <span aria-hidden>→</span>
       </button>
     </div>
   );
@@ -642,82 +727,49 @@ function MemorizePanel({
 
 function RecallPanel({
   roundIndex,
-  target,
   guess,
   onGuess,
-  difficulty,
   onSubmit,
 }: {
   roundIndex: number;
-  target: HSB;
   guess: HSB;
   onGuess: (h: HSB) => void;
-  difficulty: Difficulty;
   onSubmit: () => void;
 }) {
-  const [showSwatch, setShowSwatch] = useState(true);
-  useEffect(() => {
-    const t = setTimeout(
-      () => setShowSwatch(false),
-      DISPLAY_SWATCH_MS[difficulty]
-    );
-    return () => clearTimeout(t);
-  }, [difficulty]);
-
   return (
-    <div className="opacity-100 transition-opacity duration-[400ms]">
+    <div className="game-panel-enter max-w-xl">
       <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[var(--accent)]">
-        Manche {roundIndex + 1} / 5
+        Reconstitue · manche {roundIndex + 1} / 5
       </p>
-      <h2 className="mt-2 font-display text-3xl font-bold text-[var(--foreground)]">
-        Reconstitue la couleur
+      <h2 className="mt-2 font-display text-3xl font-bold text-[var(--foreground)] md:text-4xl">
+        Retrouve la teinte
       </h2>
-      <p className="mt-4 text-sm text-[var(--muted)]">
-        {showSwatch
-          ? difficulty === "easy"
-            ? "Rappel — mémorise encore un instant."
-            : "Aperçu rapide — puis les curseurs."
-          : "Règle teinte, saturation, luminosité."}
+      <p className="mt-4 max-w-lg text-sm leading-relaxed text-[var(--muted)]">
+        Tu as mémorisé la couleur précédente : règle teinte, saturation et
+        luminosité. La cible reste masquée — uniquement ton souvenir compte.
       </p>
 
-      <div className="mt-10 grid gap-10 lg:grid-cols-2 lg:items-start">
-        <div>
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
-            Cible
-          </p>
-          <div
-            className={`relative aspect-[4/3] w-full max-w-md overflow-hidden rounded-2xl border border-[var(--border)] transition-opacity duration-[350ms] ${
-              showSwatch ? "opacity-100" : "opacity-0"
-            }`}
-            style={{ backgroundColor: hsbToCss(target) }}
-          >
-            {showSwatch && (
-              <span className="absolute bottom-4 left-4 rounded-full bg-black/40 px-3 py-1 font-mono text-[10px] text-white backdrop-blur-sm">
-                {formatHsb(target)}
-              </span>
-            )}
-          </div>
-          {!showSwatch && (
-            <p className="mt-4 font-mono text-xs text-[var(--muted)]">
-              Indices masqués — à toi de jouer.
-            </p>
-          )}
-        </div>
-        <div>
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
-            Ta sélection
-          </p>
-          <ColorPicker value={guess} onChange={onGuess} />
-        </div>
+      <RoundProgressDots roundIndex={roundIndex} />
+
+      <div className="mt-10">
+        <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
+          Ta sélection
+        </p>
+        <ColorPicker value={guess} onChange={onGuess} />
       </div>
 
       <button
         type="button"
         onClick={onSubmit}
-        disabled={showSwatch}
-        className="mt-12 rounded-full bg-[var(--foreground)] px-12 py-4 text-sm font-semibold uppercase tracking-[0.15em] text-[var(--background)] transition-[opacity,transform] duration-[350ms] enabled:hover:scale-[1.02] disabled:opacity-40"
+        className="group mt-12 inline-flex items-center justify-center gap-2 rounded-full bg-[var(--foreground)] px-12 py-4 text-sm font-semibold uppercase tracking-[0.15em] text-[var(--background)] transition-[transform,box-shadow] duration-[350ms] hover:scale-[1.02] hover:shadow-[0_16px_32px_-8px_rgba(0,0,0,0.35)] dark:hover:shadow-[0_16px_32px_-8px_rgba(255,85,0,0.2)]"
       >
         Valider la manche
+        <span
+          aria-hidden
+          className="transition-transform duration-[350ms] group-hover:translate-x-0.5"
+        >
+          →
+        </span>
       </button>
     </div>
   );
