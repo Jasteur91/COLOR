@@ -16,7 +16,7 @@ function GameFallback() {
 export default function Home() {
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[var(--background)] transition-[background-color] duration-[350ms] ease-[cubic-bezier(0.4,0,0.2,1)]">
-      <div className="pointer-events-none absolute inset-0 z-0 md:left-[38%]">
+      <div className="absolute inset-0 z-0 md:left-[38%]">
         <SplineStage />
       </div>
       <div className="pointer-events-auto fixed right-6 top-6 z-[60] md:right-10 md:top-8">

@@ -49,10 +49,16 @@ body {
   font-family: var(--font-display), system-ui, sans-serif;
 }
 
-/* Fusion Spline : masque liens / branding tiers */
+/*
+ * Fusion Spline : masque liens / branding HTML éventuels (overlay hors canvas).
+ * Le texte ou les objets 3D dans la scène sont rendus sur le canvas WebGL :
+ * pour les retirer, il faut éditer la scène sur spline.design (pas le CSS).
+ */
 .spline-shell a[href*="spline"],
 .spline-shell a[href*="splinetool"],
-.spline-shell [class*="logo"] a {
+.spline-shell [class*="logo"] a,
+.spline-shell [class*="Watermark"],
+.spline-shell [class*="watermark"] {
   opacity: 0 !important;
   pointer-events: none !important;
   visibility: hidden !important;

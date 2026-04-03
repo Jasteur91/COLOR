@@ -181,8 +181,8 @@ export function ColorGame() {
       : "";
 
   return (
-    <div className="relative z-10 flex min-h-screen flex-col">
-      <header className="flex items-center justify-between gap-6 px-6 py-6 md:px-10 lg:px-14">
+    <div className="relative z-10 flex min-h-screen flex-col pointer-events-none">
+      <header className="pointer-events-auto flex items-center justify-between gap-6 px-6 py-6 md:px-10 lg:px-14">
         <button
           type="button"
           onClick={resetHome}
@@ -222,7 +222,11 @@ export function ColorGame() {
       </header>
 
       <main className="flex flex-1 flex-col px-6 pb-16 pt-4 md:px-10 lg:flex-row lg:items-start lg:gap-16 lg:px-14">
-        <section className="mb-12 max-w-xl flex-1 lg:mb-0 lg:pt-8" id="jeu">
+        <section
+          className="pointer-events-none mb-12 max-w-xl flex-1 lg:mb-0 lg:pt-8"
+          id="jeu"
+        >
+          <div className="pointer-events-auto max-w-xl">
           {phase === "home" && (
             <HomePanel
               onSolo={startSolo}
@@ -290,10 +294,11 @@ export function ColorGame() {
               onHome={resetHome}
             />
           )}
+          </div>
         </section>
 
         <aside
-          className="w-full max-w-md shrink-0 lg:sticky lg:top-24 lg:max-w-sm"
+          className="pointer-events-auto w-full max-w-md shrink-0 lg:sticky lg:top-24 lg:max-w-sm"
           id="modes"
         >
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)]/80 p-8 backdrop-blur-md transition-[background-color,border-color] duration-[350ms]">
@@ -324,7 +329,7 @@ export function ColorGame() {
         </aside>
       </main>
 
-      <footer className="mt-auto border-t border-[var(--border)] px-6 py-8 text-center text-[10px] uppercase tracking-[0.2em] text-[var(--muted)] transition-[border-color] duration-[350ms] md:px-10">
+      <footer className="pointer-events-auto mt-auto border-t border-[var(--border)] px-6 py-8 text-center text-[10px] uppercase tracking-[0.2em] text-[var(--muted)] transition-[border-color] duration-[350ms] md:px-10">
         <p>
           Inspiré du principe de{" "}
           <a
