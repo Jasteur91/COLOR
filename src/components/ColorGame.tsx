@@ -9,10 +9,18 @@ import {
   hashString,
   randomHsb,
 } from "@/lib/seedRandom";
+import { appendGameHistory } from "@/lib/gameHistory";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ColorPicker } from "./ColorPicker";
+
+const ScoreHistorySection = dynamic(
+  () =>
+    import("./ScoreHistorySection").then((m) => ({ default: m.ScoreHistorySection })),
+  { ssr: false, loading: () => null }
+);
 
 type Mode = "solo" | "multi" | "daily";
 type Difficulty = "easy" | "hard";
@@ -71,6 +79,7 @@ export function ColorGame() {
   const [guess, setGuess] = useState<HSB>({ h: 180, s: 50, b: 50 });
   const [roundScores, setRoundScores] = useState<number[]>([]);
   const [soundOn, setSoundOn] = useState(true);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const soloSeedRef = useRef("");
 
   const startSolo = () => {
@@ -152,17 +161,26 @@ export function ColorGame() {
     if (!colors[roundIndex]) return;
     const { score } = scoreRound(colors[roundIndex], guess);
     playBeep(soundOn, 600 + score * 40);
-    setRoundScores((prev) => [...prev, score]);
+    const nextScores = [...roundScores, score];
+    setRoundScores(nextScores);
 
     if (roundIndex >= 4) {
       setPhase("results");
+      appendGameHistory({
+        total: nextScores.reduce((a, b) => a + b, 0),
+        roundScores: nextScores,
+        mode,
+        difficulty,
+        playerName: playerName.trim() || "Anonyme",
+      });
+      setHistoryRefreshKey((k) => k + 1);
       return;
     }
     setRoundIndex((i) => i + 1);
     setGuess({ h: 180, s: 50, b: 50 });
     setMemProgress(0);
     setPhase("memorize");
-  }, [colors, roundIndex, guess, soundOn]);
+  }, [colors, roundIndex, guess, soundOn, roundScores, mode, difficulty, playerName]);
 
   const totalScore = roundScores.reduce((a, b) => a + b, 0);
 
@@ -197,6 +215,12 @@ export function ColorGame() {
           <a href="#modes" className="transition-colors duration-[350ms] hover:text-[var(--foreground)]">
             Modes
           </a>
+          <a
+            href="#score-historique"
+            className="transition-colors duration-[350ms] hover:text-[var(--foreground)]"
+          >
+            Stats
+          </a>
           <Link
             href="/scoring"
             className="transition-colors duration-[350ms] hover:text-[var(--foreground)]"
@@ -228,13 +252,16 @@ export function ColorGame() {
         >
           <div className="pointer-events-auto max-w-xl">
           {phase === "home" && (
-            <HomePanel
-              onSolo={startSolo}
-              onMulti={startMulti}
-              onDaily={startDaily}
-              difficulty={difficulty}
-              onDifficulty={setDifficulty}
-            />
+            <>
+              <HomePanel
+                onSolo={startSolo}
+                onMulti={startMulti}
+                onDaily={startDaily}
+                difficulty={difficulty}
+                onDifficulty={setDifficulty}
+              />
+              <ScoreHistorySection refreshKey={historyRefreshKey} className="mt-20" />
+            </>
           )}
 
           {phase === "name" && (
