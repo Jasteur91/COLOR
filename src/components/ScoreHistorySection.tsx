@@ -128,7 +128,8 @@ export function ScoreHistorySection({ refreshKey = 0, className = "" }: Props) {
                     <span className="text-sm font-normal text-[var(--muted)]">/50</span>
                   </span>
                   <span className="text-[11px] uppercase tracking-[0.15em] text-[var(--muted)]">
-                    {formatMode(e.mode)} · {e.difficulty === "easy" ? "Facile" : "Difficile"}
+                    {formatMode(e.mode)} · {e.difficulty === "easy" ? "Facile" : "Difficile"} ·{" "}
+                    {e.variant === "sound" ? "Son" : "Couleur"}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">

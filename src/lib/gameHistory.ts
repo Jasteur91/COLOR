@@ -1,5 +1,6 @@
 export type GameMode = "solo" | "multi" | "daily";
 export type GameDifficulty = "easy" | "hard";
+export type GameVariant = "color" | "sound";
 
 export type GameHistoryEntry = {
   id: string;
@@ -9,6 +10,8 @@ export type GameHistoryEntry = {
   mode: GameMode;
   difficulty: GameDifficulty;
   playerName: string;
+  /** défaut color pour entrées anciennes */
+  variant?: GameVariant;
 };
 
 const STORAGE_KEY = "dialed-color-game-history";

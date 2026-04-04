@@ -34,3 +34,11 @@ export function randomHsb(rng: () => number): { h: number; s: number; b: number 
     b: 15 + rng() * 85,
   };
 }
+
+export function randomFreqHz(
+  rng: () => number,
+  fMin: number,
+  fMax: number
+): number {
+  return fMin + rng() * (fMax - fMin);
+}
