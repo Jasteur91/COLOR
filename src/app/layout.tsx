@@ -24,6 +24,14 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Dialed — Mémoire des couleurs",
   description: `Jeu ${DEFAULT_ROUNDS} ou 5 manches — couleur ou son, scores perceptuels CIELAB et ERB.`,
+  ...(process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ACCOUNT
+    ? {
+        other: {
+          "google-adsense-account":
+            process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ACCOUNT,
+        },
+      }
+    : {}),
 };
 
 export default function RootLayout({
@@ -31,15 +39,8 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const adsenseAccount = process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ACCOUNT;
-
   return (
     <html lang="fr" suppressHydrationWarning className="h-full">
-      <head>
-        {adsenseAccount ? (
-          <meta name="google-adsense-account" content={adsenseAccount} />
-        ) : null}
-      </head>
       <body
         className={`${display.variable} ${body.variable} ${geistMono.variable} min-h-full antialiased`}
       >
