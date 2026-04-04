@@ -63,6 +63,8 @@ export function clearGameHistory(): void {
 export type GameHistoryStats = {
   gamesPlayed: number;
   bestTotal: number | null;
+  /** Plafond du score pour la meilleure partie (10 × nombre de manches). */
+  bestMaxPossible: number | null;
   averageTotal: number | null;
   lastEntries: GameHistoryEntry[];
 };
@@ -73,16 +75,20 @@ export function computeHistoryStats(entries: GameHistoryEntry[]): GameHistorySta
     return {
       gamesPlayed: 0,
       bestTotal: null,
+      bestMaxPossible: null,
       averageTotal: null,
       lastEntries: [],
     };
   }
   const totals = entries.map((e) => e.total);
   const bestTotal = Math.max(...totals);
+  const bestEntry = entries.reduce((a, b) => (a.total >= b.total ? a : b));
+  const bestMaxPossible = bestEntry.roundScores.length * 10;
   const averageTotal = totals.reduce((a, b) => a + b, 0) / totals.length;
   return {
     gamesPlayed,
     bestTotal,
+    bestMaxPossible,
     averageTotal,
     lastEntries: entries.slice(0, 12),
   };

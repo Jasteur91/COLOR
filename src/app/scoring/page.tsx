@@ -1,3 +1,4 @@
+import { MAX_GAME_SCORE, ROUNDS_PER_GAME } from "@/lib/gameConstants";
 import Link from "next/link";
 
 export default function ScoringPage() {
@@ -29,10 +30,11 @@ export default function ScoringPage() {
           des petits ajustements favorisent la bonne{" "}
           <strong className="font-medium text-[var(--foreground)]">famille de teinte</strong>{" "}
           (mémoire de la couleur).{" "}
-          <strong className="font-medium text-[var(--foreground)]">Cinq manches</strong>,{" "}
+          <strong className="font-medium text-[var(--foreground)]">{ROUNDS_PER_GAME} manches</strong>
+          ,{" "}
           <strong className="font-medium text-[var(--foreground)]">0 à 10</strong> par
-          manche, <strong className="font-medium text-[var(--foreground)]">50</strong> au
-          maximum.
+          manche, <strong className="font-medium text-[var(--foreground)]">{MAX_GAME_SCORE}</strong>{" "}
+          au maximum.
         </p>
       </div>
 

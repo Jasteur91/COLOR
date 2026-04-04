@@ -4,13 +4,14 @@
 
 export type SoundDifficulty = "easy" | "hard";
 
+/** Plages élargies + tirage log (voir seedRandom) pour couvrir plus de hauteurs perceptives. */
 export const SOUND_RANGE_HZ = {
-  easy: { min: 80, max: 1200 },
-  hard: { min: 60, max: 1400 },
+  easy: { min: 45, max: 4200 },
+  hard: { min: 35, max: 7800 },
 } as const;
 
-/** Temps d’écoute par manche (son continu) — plus long que le mode couleur, style dialed.gg/sound. */
-export const MEMORIZE_SOUND_ROUND_SECONDS = { easy: 48, hard: 30 } as const;
+/** Temps d’écoute par manche (son continu), aligné sur le mode couleur. */
+export const MEMORIZE_SOUND_ROUND_SECONDS = { easy: 5, hard: 3 } as const;
 
 /** Curseur « musical » : position 0–1 ↔ Hz sur échelle logarithmique (comme dialed). */
 export function hzToLogPosition(hz: number, min: number, max: number): number {

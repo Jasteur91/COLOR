@@ -176,7 +176,7 @@ export function hueDifferenceDeg(h1: number, h2: number): number {
 
 /**
  * Pipeline dialed.gg (avr. 2026) : CIELAB + CIEDE2000, courbe en S, récupération / pénalité teinte.
- * Cinq manches, 0–10 par manche, max 50.
+ * Plusieurs manches, 0–10 par manche (total max = 10 × nombre de manches).
  */
 export function scoreRound(target: HSB, guess: HSB): {
   score: number;

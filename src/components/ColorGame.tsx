@@ -5,6 +5,11 @@ import { formatHsb, hsbToCss, scoreRound } from "@/lib/colorScience";
 import { generateRoomId } from "@/lib/ids";
 import { appendGameHistory, type GameVariant as HistoryGameVariant } from "@/lib/gameHistory";
 import {
+  MAX_GAME_SCORE,
+  MEMORIZE_COLOR_ROUND_SECONDS,
+  ROUNDS_PER_GAME,
+} from "@/lib/gameConstants";
+import {
   clearRoomSignals,
   isRoomHost,
   readGameStartPayload,
@@ -19,8 +24,8 @@ import {
   createSeededRandom,
   dailySeedString,
   hashString,
-  randomFreqHz,
-  randomHsb,
+  randomFreqHzLog,
+  randomHsbGameSequence,
 } from "@/lib/seedRandom";
 import {
   MEMORIZE_SOUND_ROUND_SECONDS,
@@ -53,9 +58,6 @@ type Phase =
   | "recall"
   | "results";
 
-/** Temps pour mémoriser chaque couleur (une par une), puis reconstitution. */
-const MEMORIZE_ROUND_SECONDS = { easy: 12, hard: 6 };
-
 function centerGuessHz(difficulty: Difficulty): number {
   const { min, max } = SOUND_RANGE_HZ[difficulty];
   return hzFromLogPosition(0.5, min, max);
@@ -63,13 +65,15 @@ function centerGuessHz(difficulty: Difficulty): number {
 
 function generateColors(seedStr: string): HSB[] {
   const rng = createSeededRandom(hashString(seedStr));
-  return Array.from({ length: 5 }, () => randomHsb(rng));
+  return randomHsbGameSequence(rng, ROUNDS_PER_GAME);
 }
 
 function generateSoundTargets(seedStr: string, difficulty: Difficulty): number[] {
   const rng = createSeededRandom(hashString(seedStr));
   const { min, max } = SOUND_RANGE_HZ[difficulty];
-  return Array.from({ length: 5 }, () => randomFreqHz(rng, min, max));
+  return Array.from({ length: ROUNDS_PER_GAME }, () =>
+    randomFreqHzLog(rng, min, max)
+  );
 }
 
 function playBeep(on: boolean, freq: number) {
@@ -244,7 +248,7 @@ export function ColorGame() {
     const durationSec =
       gameVariant === "sound"
         ? MEMORIZE_SOUND_ROUND_SECONDS[difficulty]
-        : MEMORIZE_ROUND_SECONDS[difficulty];
+        : MEMORIZE_COLOR_ROUND_SECONDS[difficulty];
     const duration = durationSec * 1000;
     const start = Date.now();
     const tick = setInterval(() => {
@@ -341,7 +345,7 @@ export function ColorGame() {
     const nextScores = [...roundScores, score];
     setRoundScores(nextScores);
 
-    if (roundIndex >= 4) {
+    if (roundIndex >= ROUNDS_PER_GAME - 1) {
       setPhase("results");
       appendGameHistory({
         total: nextScores.reduce((a, b) => a + b, 0),
@@ -534,6 +538,7 @@ export function ColorGame() {
                 roundIndex={roundIndex}
                 memProgress={memProgress}
                 difficulty={difficulty}
+                roundsTotal={ROUNDS_PER_GAME}
                 onSkip={skipToRecall}
               />
             )}
@@ -547,6 +552,7 @@ export function ColorGame() {
                 roundIndex={roundIndex}
                 memProgress={memProgress}
                 difficulty={difficulty}
+                roundsTotal={ROUNDS_PER_GAME}
                 onSkip={skipToRecall}
               />
             )}
@@ -557,6 +563,7 @@ export function ColorGame() {
               <RecallPanel
                 key={`rec-${roundIndex}`}
                 roundIndex={roundIndex}
+                roundsTotal={ROUNDS_PER_GAME}
                 guess={guess}
                 onGuess={setGuess}
                 onSubmit={submitRound}
@@ -569,6 +576,7 @@ export function ColorGame() {
               <RecallSoundPanel
                 key={`rec-s-${roundIndex}`}
                 roundIndex={roundIndex}
+                roundsTotal={ROUNDS_PER_GAME}
                 targetHz={targetsHz[roundIndex]!}
                 guessFreq={guessFreq}
                 onGuessFreq={setGuessFreq}
@@ -581,6 +589,7 @@ export function ColorGame() {
           {phase === "results" && (
             <ResultsPanel
               gameVariant={gameVariant}
+              maxTotal={MAX_GAME_SCORE}
               total={totalScore}
               roundScores={roundScores}
               colorTargets={colors}
@@ -603,7 +612,7 @@ export function ColorGame() {
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)]/80 p-8 backdrop-blur-md transition-[background-color,border-color] duration-[350ms]">
             <p className="font-display text-4xl font-bold leading-none tracking-tight text-[var(--foreground)]">
               {phase === "memorize" || phase === "recall" ? roundIndex + 1 : "—"}
-              <span className="text-[var(--muted)]">/5</span>
+              <span className="text-[var(--muted)]">/{ROUNDS_PER_GAME}</span>
             </p>
             <p className="mt-2 text-sm text-[var(--muted)]">
               {phase === "memorize"
@@ -718,8 +727,8 @@ function HomePanel({
       </h1>
       <p className="mt-8 max-w-lg text-lg leading-relaxed text-[var(--muted)] transition-colors duration-[350ms]">
         {gameVariant === "color"
-          ? "Cinq manches couleur : mémorisation avec compte à rebours, puis reconstitution HSB — score perceptuel CIEDE2000."
-          : "Cinq manches son : tu entends une fréquence, puis tu la retrouves avec un curseur Hz — score ERB-rate (comme sur dialed.gg)."}
+          ? `${ROUNDS_PER_GAME} manches couleur : palettes variées, mémorisation courte, puis reconstitution HSB — score perceptuel CIEDE2000.`
+          : `${ROUNDS_PER_GAME} manches son : ton continu bref, plage Hz élargie (tirage log), curseur — score ERB-rate (comme sur dialed.gg).`}
       </p>
 
       <p className="mt-8 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
@@ -1095,10 +1104,20 @@ function RoundTimerRing({
   );
 }
 
-function RoundProgressDots({ roundIndex }: { roundIndex: number }) {
+function RoundProgressDots({
+  roundIndex,
+  roundsTotal,
+}: {
+  roundIndex: number;
+  roundsTotal: number;
+}) {
   return (
-    <div className="flex justify-center gap-2" role="list" aria-label="Progression des manches">
-      {Array.from({ length: 5 }, (_, i) => (
+    <div
+      className="flex flex-wrap justify-center gap-1.5 sm:gap-2"
+      role="list"
+      aria-label="Progression des manches"
+    >
+      {Array.from({ length: roundsTotal }, (_, i) => (
         <span
           key={i}
           role="listitem"
@@ -1120,15 +1139,17 @@ function MemorizeRoundPanel({
   roundIndex,
   memProgress,
   difficulty,
+  roundsTotal,
   onSkip,
 }: {
   color: HSB;
   roundIndex: number;
   memProgress: number;
   difficulty: Difficulty;
+  roundsTotal: number;
   onSkip: () => void;
 }) {
-  const totalSec = MEMORIZE_ROUND_SECONDS[difficulty];
+  const totalSec = MEMORIZE_COLOR_ROUND_SECONDS[difficulty];
   const secondsLeft = Math.max(0, Math.ceil((1 - memProgress) * totalSec));
 
   return (
@@ -1137,13 +1158,13 @@ function MemorizeRoundPanel({
         Mémorise
       </p>
       <h2 className="mt-2 font-display text-3xl font-bold text-[var(--foreground)] md:text-4xl">
-        Couleur {roundIndex + 1} sur 5
+        Couleur {roundIndex + 1} sur {roundsTotal}
       </h2>
       <p className="mt-3 text-sm text-[var(--muted)]">
         Imprime-la mentalement — ensuite tu la retrouveras sans l’aperçu.
       </p>
 
-      <RoundProgressDots roundIndex={roundIndex} />
+      <RoundProgressDots roundIndex={roundIndex} roundsTotal={roundsTotal} />
 
       <div className="mt-10 flex flex-col items-center gap-10 sm:flex-row sm:items-center sm:justify-between sm:gap-12">
         <div
@@ -1172,8 +1193,8 @@ function MemorizeRoundPanel({
 
       <p className="mt-10 text-sm text-[var(--muted)]">
         {difficulty === "easy"
-          ? "Plus de temps par couleur — idéal pour s’habituer au rythme."
-          : "Rythme serré : comme sur le jeu original, une couleur après l’autre."}
+          ? "5 secondes par couleur — concentre-toi tout de suite."
+          : "3 secondes par couleur — rythme très serré."}
       </p>
       <button
         type="button"
@@ -1194,12 +1215,14 @@ function MemorizeSoundPanel({
   roundIndex,
   memProgress,
   difficulty,
+  roundsTotal,
   onSkip,
 }: {
   hz: number;
   roundIndex: number;
   memProgress: number;
   difficulty: Difficulty;
+  roundsTotal: number;
   onSkip: () => void;
 }) {
   void _hz;
@@ -1212,13 +1235,13 @@ function MemorizeSoundPanel({
         Écoute
       </p>
       <h2 className="mt-2 font-display text-3xl font-bold text-[var(--foreground)] md:text-4xl">
-        Manche {roundIndex + 1} sur 5 · tonalité
+        Manche {roundIndex + 1} sur {roundsTotal} · tonalité
       </h2>
       <p className="mt-3 text-sm text-[var(--muted)]">
-        Un ton pur et continu pendant tout le temps imparti. Mémorise la hauteur —
-        pas les chiffres.
+        Un ton pur et continu pendant le temps imparti (5 s en facile, 3 s en difficile).
+        Mémorise la hauteur — pas les chiffres.
       </p>
-      <RoundProgressDots roundIndex={roundIndex} />
+      <RoundProgressDots roundIndex={roundIndex} roundsTotal={roundsTotal} />
       <div className="mt-10 flex flex-col items-center gap-10 sm:flex-row sm:items-center sm:justify-between">
         <div className="sound-mem-visual sound-mem-wave relative flex aspect-square w-full max-w-[min(100%,280px)] flex-col items-center justify-center overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-inner">
           <span className="relative z-[1] font-display text-6xl text-[var(--accent)] [animation:sound-mem-note_2.4s_ease-in-out_infinite]">
@@ -1257,11 +1280,13 @@ function MemorizeSoundPanel({
 
 function RecallPanel({
   roundIndex,
+  roundsTotal,
   guess,
   onGuess,
   onSubmit,
 }: {
   roundIndex: number;
+  roundsTotal: number;
   guess: HSB;
   onGuess: (h: HSB) => void;
   onSubmit: () => void;
@@ -1269,7 +1294,7 @@ function RecallPanel({
   return (
     <div className="recall-stage-enter game-panel-enter max-w-xl">
       <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[var(--accent)]">
-        Reconstitue · manche {roundIndex + 1} / 5
+        Reconstitue · manche {roundIndex + 1} / {roundsTotal}
       </p>
       <h2 className="mt-2 font-display text-3xl font-bold text-[var(--foreground)] md:text-4xl">
         Retrouve la teinte
@@ -1279,7 +1304,7 @@ function RecallPanel({
         luminosité. La cible reste masquée — uniquement ton souvenir compte.
       </p>
 
-      <RoundProgressDots roundIndex={roundIndex} />
+      <RoundProgressDots roundIndex={roundIndex} roundsTotal={roundsTotal} />
 
       <div className="mt-10">
         <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
@@ -1307,7 +1332,7 @@ function RecallPanel({
 
 function RecallSoundPanel({
   roundIndex,
-  targetHz,
+  roundsTotal,
   guessFreq,
   onGuessFreq,
   difficulty,
@@ -1315,6 +1340,7 @@ function RecallSoundPanel({
   onSubmit,
 }: {
   roundIndex: number;
+  roundsTotal: number;
   targetHz: number;
   guessFreq: number;
   onGuessFreq: (hz: number) => void;
@@ -1325,7 +1351,7 @@ function RecallSoundPanel({
   return (
     <div className="recall-stage-enter game-panel-enter max-w-xl">
       <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[var(--accent)]">
-        Reconstitue · manche {roundIndex + 1} / 5
+        Reconstitue · manche {roundIndex + 1} / {roundsTotal}
       </p>
       <h2 className="mt-2 font-display text-3xl font-bold text-[var(--foreground)] md:text-4xl">
         Retrouve la fréquence
@@ -1334,7 +1360,7 @@ function RecallSoundPanel({
         Curseur logarithmique : glisse pour entendre en continu, comme sur la démo
         sound-scoring. Le score ERB se met à jour en direct — la cible reste cachée.
       </p>
-      <RoundProgressDots roundIndex={roundIndex} />
+      <RoundProgressDots roundIndex={roundIndex} roundsTotal={roundsTotal} />
       <div className="mt-10">
         <FrequencyPicker
           valueHz={guessFreq}
@@ -1363,6 +1389,7 @@ function RecallSoundPanel({
 
 function ResultsPanel({
   gameVariant,
+  maxTotal,
   total,
   roundScores,
   colorTargets,
@@ -1375,6 +1402,7 @@ function ResultsPanel({
   onHome,
 }: {
   gameVariant: GameVariant;
+  maxTotal: number;
   total: number;
   roundScores: number[];
   colorTargets: HSB[];
@@ -1393,7 +1421,7 @@ function ResultsPanel({
       </p>
       <h2 className="mt-2 font-display text-5xl font-bold text-[var(--foreground)]">
         {total.toFixed(2)}
-        <span className="text-2xl text-[var(--muted)]">/50</span>
+        <span className="text-2xl text-[var(--muted)]">/{maxTotal}</span>
       </h2>
       <p className="mt-4 text-[var(--muted)]">
         {playerName && (

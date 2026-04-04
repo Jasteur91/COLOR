@@ -85,7 +85,9 @@ export function ScoreHistorySection({ refreshKey = 0, className = "" }: Props) {
           </p>
           <p className="font-display mt-2 text-4xl font-bold tabular-nums text-[var(--foreground)]">
             {stats.bestTotal !== null ? stats.bestTotal.toFixed(2) : "—"}
-            <span className="text-lg text-[var(--muted)]">/50</span>
+            {stats.bestMaxPossible !== null && (
+              <span className="text-lg text-[var(--muted)]">/{stats.bestMaxPossible}</span>
+            )}
           </p>
         </div>
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)]/90 p-6 backdrop-blur-sm transition-[border-color,background-color] duration-[350ms]">
@@ -125,7 +127,9 @@ export function ScoreHistorySection({ refreshKey = 0, className = "" }: Props) {
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <span className="font-display text-xl font-bold tabular-nums text-[var(--foreground)]">
                     {e.total.toFixed(2)}
-                    <span className="text-sm font-normal text-[var(--muted)]">/50</span>
+                    <span className="text-sm font-normal text-[var(--muted)]">
+                      /{e.roundScores.length * 10}
+                    </span>
                   </span>
                   <span className="text-[11px] uppercase tracking-[0.15em] text-[var(--muted)]">
                     {formatMode(e.mode)} · {e.difficulty === "easy" ? "Facile" : "Difficile"} ·{" "}

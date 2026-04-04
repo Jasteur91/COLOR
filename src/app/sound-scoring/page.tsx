@@ -1,3 +1,5 @@
+import { MAX_GAME_SCORE, ROUNDS_PER_GAME } from "@/lib/gameConstants";
+import { SOUND_RANGE_HZ } from "@/lib/soundScoring";
 import Link from "next/link";
 
 export default function SoundScoringPage() {
@@ -38,10 +40,11 @@ export default function SoundScoringPage() {
           même score du grave à l’aigu.
         </p>
         <p>
-          <strong className="font-medium text-[var(--foreground)]">Cinq manches</strong>
+          <strong className="font-medium text-[var(--foreground)]">{ROUNDS_PER_GAME} manches</strong>
           ,{" "}
           <strong className="font-medium text-[var(--foreground)]">0 à 10</strong> par
-          manche, <strong className="font-medium text-[var(--foreground)]">50</strong> max.
+          manche, <strong className="font-medium text-[var(--foreground)]">{MAX_GAME_SCORE}</strong>{" "}
+          max.
         </p>
       </div>
 
@@ -50,10 +53,13 @@ export default function SoundScoringPage() {
       </h2>
       <ul className="mt-4 max-w-2xl list-inside list-disc space-y-2 text-[var(--muted)]">
         <li>
-          <strong className="text-[var(--foreground)]">Facile</strong> : 80 – 1&nbsp;200 Hz
+          <strong className="text-[var(--foreground)]">Facile</strong> :{" "}
+          {SOUND_RANGE_HZ.easy.min} – {SOUND_RANGE_HZ.easy.max.toLocaleString("fr-FR")} Hz (cibles
+          tirées en échelle logarithmique)
         </li>
         <li>
-          <strong className="text-[var(--foreground)]">Difficile</strong> : 60 – 1&nbsp;400 Hz
+          <strong className="text-[var(--foreground)]">Difficile</strong> :{" "}
+          {SOUND_RANGE_HZ.hard.min} – {SOUND_RANGE_HZ.hard.max.toLocaleString("fr-FR")} Hz
         </li>
       </ul>
 
