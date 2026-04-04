@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:apply": "node scripts/apply-supabase-migration.mjs"
   },
   "dependencies": {
     "@splinetool/react-spline": "^4.1.0",
@@ -24,6 +25,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
+    "pg": "^8.14.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
