@@ -24,6 +24,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Dialed — Mémoire des couleurs",
   description: `Jeu ${DEFAULT_ROUNDS} ou 5 manches — couleur ou son, scores perceptuels CIELAB et ERB.`,
+  verification: {
+    google: "SA8cv8LFrKnTM7cUedHvdf4Oy_2iXxhUn7BGn7_FWzY",
+  },
   ...(process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ACCOUNT
     ? {
         other: {
