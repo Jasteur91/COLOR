@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Bebas_Neue, DM_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/context/ThemeContext";
+import { Analytics } from "@vercel/analytics/next";
 
 const display = Bebas_Neue({
   weight: "400",
@@ -36,6 +37,7 @@ export default function RootLayout({
         className={`${display.variable} ${body.variable} ${geistMono.variable} min-h-full antialiased`}
       >
         <ThemeProvider>{children}</ThemeProvider>
+        <Analytics />
       </body>
     </html>
   );
