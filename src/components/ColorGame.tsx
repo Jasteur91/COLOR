@@ -5,10 +5,25 @@ import { formatHsb, hsbToCss, scoreRound } from "@/lib/colorScience";
 import { generateRoomId } from "@/lib/ids";
 import { appendGameHistory, type GameVariant as HistoryGameVariant } from "@/lib/gameHistory";
 import {
-  MAX_GAME_SCORE,
+  DEFAULT_ROUNDS,
   MEMORIZE_COLOR_ROUND_SECONDS,
-  ROUNDS_PER_GAME,
+  maxScoreForRounds,
+  ROUNDS_OPTIONS,
+  type RoundsCount,
 } from "@/lib/gameConstants";
+import {
+  createRoomRemote,
+  fetchRemoteLeaderboard,
+  fetchRemotePlayers,
+  fetchRoomByCode,
+  isRemoteHost,
+  signalRemoteGameStart,
+  submitRemoteResult,
+  subscribeRemoteRoom,
+  upsertRemotePlayer,
+  type LeaderboardRow,
+  type RemoteRoomRow,
+} from "@/lib/roomRemote";
 import {
   clearRoomSignals,
   isRoomHost,
@@ -20,6 +35,7 @@ import {
   upsertLobbyPlayer,
   type LobbyPlayer,
 } from "@/lib/roomLobby";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 import {
   createSeededRandom,
   dailySeedString,
@@ -63,17 +79,19 @@ function centerGuessHz(difficulty: Difficulty): number {
   return hzFromLogPosition(0.5, min, max);
 }
 
-function generateColors(seedStr: string): HSB[] {
+function generateColors(seedStr: string, rounds: number): HSB[] {
   const rng = createSeededRandom(hashString(seedStr));
-  return randomHsbGameSequence(rng, ROUNDS_PER_GAME);
+  return randomHsbGameSequence(rng, rounds);
 }
 
-function generateSoundTargets(seedStr: string, difficulty: Difficulty): number[] {
+function generateSoundTargets(
+  seedStr: string,
+  difficulty: Difficulty,
+  rounds: number
+): number[] {
   const rng = createSeededRandom(hashString(seedStr));
   const { min, max } = SOUND_RANGE_HZ[difficulty];
-  return Array.from({ length: ROUNDS_PER_GAME }, () =>
-    randomFreqHzLog(rng, min, max)
-  );
+  return Array.from({ length: rounds }, () => randomFreqHzLog(rng, min, max));
 }
 
 function playBeep(on: boolean, freq: number) {
@@ -121,8 +139,13 @@ export function ColorGame() {
   const [roundGuessesFreq, setRoundGuessesFreq] = useState<number[]>([]);
   const [phaseBridge, setPhaseBridge] = useState(false);
   const [lobbyPlayers, setLobbyPlayers] = useState<LobbyPlayer[]>([]);
+  const [roundsPerGame, setRoundsPerGame] = useState<RoundsCount>(DEFAULT_ROUNDS);
+  const [remoteRoomUuid, setRemoteRoomUuid] = useState<string | null>(null);
+  const [remoteRoomRow, setRemoteRoomRow] = useState<RemoteRoomRow | null>(null);
+  const [multiLeaderboard, setMultiLeaderboard] = useState<LeaderboardRow[]>([]);
   const [soundOn, setSoundOn] = useState(true);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const useRemoteMulti = mode === "multi" && isSupabaseConfigured();
   const soloSeedRef = useRef("");
   const beginPlayRef = useRef<(v: GameVariant) => void>(() => {});
   const phaseRef = useRef<Phase>(phase);
@@ -145,6 +168,7 @@ export function ColorGame() {
 
   const beginPlay = useCallback(
     (v: GameVariant) => {
+      const rounds = roundsPerGame;
       setRoundGuessesColor([]);
       setRoundGuessesFreq([]);
       setRoundIndex(0);
@@ -154,28 +178,28 @@ export function ColorGame() {
       if (v === "color") {
         const seed =
           mode === "daily"
-            ? `daily-${dailySeedString()}`
+            ? `daily-${dailySeedString()}-r${rounds}`
             : mode === "multi"
-              ? `room-${roomId.trim()}`
-              : soloSeedRef.current;
-        setColors(generateColors(seed));
+              ? `room-${roomId.trim()}-r${rounds}-${difficulty}`
+              : `${soloSeedRef.current}-r${rounds}`;
+        setColors(generateColors(seed, rounds));
         setTargetsHz([]);
         setGuess({ h: 180, s: 50, b: 50 });
       } else {
         const seedBase =
           mode === "daily"
-            ? `daily-${dailySeedString()}`
+            ? `daily-${dailySeedString()}-r${rounds}`
             : mode === "multi"
-              ? `room-${roomId.trim()}`
-              : soloSeedRef.current;
+              ? `room-${roomId.trim()}-r${rounds}-${difficulty}`
+              : `${soloSeedRef.current}-r${rounds}`;
         setColors([]);
-        setTargetsHz(generateSoundTargets(`${seedBase}-sound`, difficulty));
+        setTargetsHz(generateSoundTargets(`${seedBase}-sound`, difficulty, rounds));
         setGuessFreq(centerGuessHz(difficulty));
         setGuess({ h: 180, s: 50, b: 50 });
       }
       setPhase("memorize");
     },
-    [mode, roomId, difficulty]
+    [mode, roomId, difficulty, roundsPerGame]
   );
 
   useEffect(() => {
@@ -185,6 +209,24 @@ export function ColorGame() {
   useEffect(() => {
     beginPlayRef.current = beginPlay;
   }, [beginPlay]);
+
+  /** Lien ?room=CODE : charge la salle Supabase (manches, variante, difficulté). */
+  useEffect(() => {
+    if (!roomFromUrl || !isSupabaseConfigured()) return;
+    let cancelled = false;
+    void fetchRoomByCode(roomFromUrl).then((res) => {
+      if (cancelled || "error" in res) return;
+      setRemoteRoomRow(res.room);
+      setRemoteRoomUuid(res.room.id);
+      setRoomId(res.room.code);
+      setRoundsPerGame(res.room.rounds);
+      setGameVariant(res.room.variant);
+      setDifficulty(res.room.difficulty);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [roomFromUrl]);
 
   const confirmName = () => {
     if (!playerName.trim()) return;
@@ -197,28 +239,103 @@ export function ColorGame() {
       return;
     }
     if (mode === "multi" && roomId.trim()) {
-      upsertLobbyPlayer(roomId.trim(), playerName.trim());
+      if (useRemoteMulti && remoteRoomUuid) {
+        void upsertRemotePlayer(remoteRoomUuid, playerName.trim()).then((r) => {
+          if ("error" in r) console.warn(r.error);
+        });
+      } else {
+        upsertLobbyPlayer(roomId.trim(), playerName.trim());
+      }
       setPhase("lobby");
     }
   };
 
-  const createRoom = () => {
+  const createRoom = async () => {
     const id = generateRoomId();
-    setRoomId(id);
-    setRoomHost(id);
+    if (useRemoteMulti) {
+      const res = await createRoomRemote({
+        code: id,
+        variant: gameVariant,
+        rounds: roundsPerGame,
+        difficulty,
+      });
+      if ("error" in res) {
+        alert(res.error);
+        return;
+      }
+      setRemoteRoomRow(res.room);
+      setRemoteRoomUuid(res.room.id);
+      setRoomId(res.room.code);
+      if (typeof window !== "undefined") {
+        router.replace(`/?room=${encodeURIComponent(res.room.code)}`);
+      }
+    } else {
+      setRoomId(id);
+      setRoomHost(id);
+    }
     setPhase("name");
   };
 
-  const joinRoom = () => {
+  const joinRoom = async () => {
     const id = roomFromUrl || roomId.trim();
     if (!id) return;
-    setRoomId(id);
+    if (useRemoteMulti) {
+      const res = await fetchRoomByCode(id);
+      if ("error" in res) {
+        alert(res.error);
+        return;
+      }
+      setRemoteRoomRow(res.room);
+      setRemoteRoomUuid(res.room.id);
+      setRoomId(res.room.code);
+      setRoundsPerGame(res.room.rounds);
+      setGameVariant(res.room.variant);
+      setDifficulty(res.room.difficulty);
+      if (typeof window !== "undefined") {
+        router.replace(`/?room=${encodeURIComponent(res.room.code)}`);
+      }
+    } else {
+      setRoomId(id);
+    }
     setPhase("name");
   };
 
   useEffect(() => {
     if (phase !== "lobby" || !roomId.trim()) return;
     const rid = roomId.trim();
+
+    if (useRemoteMulti && remoteRoomUuid) {
+      const syncList = () => {
+        void fetchRemotePlayers(remoteRoomUuid).then((list) =>
+          startTransition(() => setLobbyPlayers(list))
+        );
+      };
+      syncList();
+      const poll = setInterval(syncList, 2500);
+      const unsub = subscribeRemoteRoom(
+        remoteRoomUuid,
+        syncList,
+        (row) => {
+          if (!row) return;
+          setRemoteRoomRow(row);
+          if (
+            row.status === "playing" &&
+            !isRemoteHost(row) &&
+            phaseRef.current === "lobby"
+          ) {
+            setGameVariant(row.variant);
+            setRoundsPerGame(row.rounds);
+            setDifficulty(row.difficulty);
+            beginPlayRef.current(row.variant);
+          }
+        }
+      );
+      return () => {
+        clearInterval(poll);
+        unsub();
+      };
+    }
+
     clearRoomSignals(rid);
     const host = isRoomHost(rid);
     const syncList = () =>
@@ -238,7 +355,7 @@ export function ColorGame() {
           }
     );
     return unsub;
-  }, [phase, roomId]);
+  }, [phase, roomId, remoteRoomUuid, useRemoteMulti]);
 
   useEffect(() => {
     if (phase !== "memorize") return;
@@ -345,10 +462,22 @@ export function ColorGame() {
     const nextScores = [...roundScores, score];
     setRoundScores(nextScores);
 
-    if (roundIndex >= ROUNDS_PER_GAME - 1) {
+    if (roundIndex >= roundsPerGame - 1) {
+      const totalPts = nextScores.reduce((a, b) => a + b, 0);
+      if (mode === "multi" && remoteRoomUuid) {
+        void submitRemoteResult({
+          roomId: remoteRoomUuid,
+          playerName: playerName.trim() || "Anonyme",
+          total: totalPts,
+          roundScores: nextScores,
+        }).then((sub) => {
+          if ("error" in sub) console.warn(sub.error);
+          void fetchRemoteLeaderboard(remoteRoomUuid).then(setMultiLeaderboard);
+        });
+      }
       setPhase("results");
       appendGameHistory({
-        total: nextScores.reduce((a, b) => a + b, 0),
+        total: totalPts,
         roundScores: nextScores,
         mode,
         difficulty,
@@ -377,7 +506,21 @@ export function ColorGame() {
     mode,
     difficulty,
     playerName,
+    roundsPerGame,
+    remoteRoomUuid,
   ]);
+
+  useEffect(() => {
+    if (phase !== "results" || mode !== "multi" || !remoteRoomUuid || !useRemoteMulti) {
+      return;
+    }
+    const load = () => {
+      void fetchRemoteLeaderboard(remoteRoomUuid).then(setMultiLeaderboard);
+    };
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [phase, mode, remoteRoomUuid, useRemoteMulti]);
 
   const totalScore = roundScores.reduce((a, b) => a + b, 0);
 
@@ -391,6 +534,9 @@ export function ColorGame() {
     setRoundIndex(0);
     setRoomId("");
     setLobbyPlayers([]);
+    setRemoteRoomUuid(null);
+    setRemoteRoomRow(null);
+    setMultiLeaderboard([]);
     router.replace("/");
   };
 
@@ -413,12 +559,20 @@ export function ColorGame() {
     }, 450);
   }, [gameVariant, difficulty, soundOn]);
 
-  const hostStartMulti = useCallback(() => {
+  const hostStartMulti = useCallback(async () => {
     const rid = roomId.trim();
     if (!rid) return;
-    signalGameStart(rid, gameVariant);
+    if (useRemoteMulti && remoteRoomUuid) {
+      const r = await signalRemoteGameStart(remoteRoomUuid);
+      if ("error" in r) {
+        alert(r.error);
+        return;
+      }
+    } else {
+      signalGameStart(rid, gameVariant);
+    }
     beginPlay(gameVariant);
-  }, [roomId, gameVariant, beginPlay]);
+  }, [roomId, gameVariant, beginPlay, useRemoteMulti, remoteRoomUuid]);
 
   return (
     <div className="relative z-10 flex min-h-screen flex-col pointer-events-none">
@@ -489,6 +643,8 @@ export function ColorGame() {
                 onDifficulty={setDifficulty}
                 gameVariant={gameVariant}
                 onGameVariant={setGameVariant}
+                roundsPerGame={roundsPerGame}
+                onRoundsPerGame={setRoundsPerGame}
               />
               <ScoreHistorySection refreshKey={historyRefreshKey} className="mt-20" />
             </>
@@ -513,6 +669,9 @@ export function ColorGame() {
               onJoin={joinRoom}
               shareUrl={shareUrl}
               onBack={() => setPhase("home")}
+              useRemoteMulti={useRemoteMulti}
+              roundsPerGame={roundsPerGame}
+              onRoundsPerGame={setRoundsPerGame}
             />
           )}
 
@@ -521,9 +680,15 @@ export function ColorGame() {
               roomId={roomId.trim()}
               players={lobbyPlayers}
               playerName={playerName.trim()}
-              isHost={isRoomHost(roomId.trim())}
+              isHost={
+                useRemoteMulti && remoteRoomRow
+                  ? isRemoteHost(remoteRoomRow)
+                  : isRoomHost(roomId.trim())
+              }
               shareUrl={shareUrl}
               gameVariant={gameVariant}
+              roundsPerGame={roundsPerGame}
+              useRemoteMulti={useRemoteMulti}
               onStart={hostStartMulti}
               onBack={() => setPhase("home")}
             />
@@ -538,7 +703,7 @@ export function ColorGame() {
                 roundIndex={roundIndex}
                 memProgress={memProgress}
                 difficulty={difficulty}
-                roundsTotal={ROUNDS_PER_GAME}
+                roundsTotal={roundsPerGame}
                 onSkip={skipToRecall}
               />
             )}
@@ -552,7 +717,7 @@ export function ColorGame() {
                 roundIndex={roundIndex}
                 memProgress={memProgress}
                 difficulty={difficulty}
-                roundsTotal={ROUNDS_PER_GAME}
+                roundsTotal={roundsPerGame}
                 onSkip={skipToRecall}
               />
             )}
@@ -563,7 +728,7 @@ export function ColorGame() {
               <RecallPanel
                 key={`rec-${roundIndex}`}
                 roundIndex={roundIndex}
-                roundsTotal={ROUNDS_PER_GAME}
+                roundsTotal={roundsPerGame}
                 guess={guess}
                 onGuess={setGuess}
                 onSubmit={submitRound}
@@ -576,7 +741,7 @@ export function ColorGame() {
               <RecallSoundPanel
                 key={`rec-s-${roundIndex}`}
                 roundIndex={roundIndex}
-                roundsTotal={ROUNDS_PER_GAME}
+                roundsTotal={roundsPerGame}
                 targetHz={targetsHz[roundIndex]!}
                 guessFreq={guessFreq}
                 onGuessFreq={setGuessFreq}
@@ -589,7 +754,7 @@ export function ColorGame() {
           {phase === "results" && (
             <ResultsPanel
               gameVariant={gameVariant}
-              maxTotal={MAX_GAME_SCORE}
+              maxTotal={maxScoreForRounds(roundsPerGame)}
               total={totalScore}
               roundScores={roundScores}
               colorTargets={colors}
@@ -599,6 +764,8 @@ export function ColorGame() {
               playerName={playerName}
               mode={mode}
               roomId={roomId}
+              multiLeaderboard={multiLeaderboard}
+              showMultiLeaderboard={mode === "multi" && useRemoteMulti}
               onHome={resetHome}
             />
           )}
@@ -612,7 +779,7 @@ export function ColorGame() {
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)]/80 p-8 backdrop-blur-md transition-[background-color,border-color] duration-[350ms]">
             <p className="font-display text-4xl font-bold leading-none tracking-tight text-[var(--foreground)]">
               {phase === "memorize" || phase === "recall" ? roundIndex + 1 : "—"}
-              <span className="text-[var(--muted)]">/{ROUNDS_PER_GAME}</span>
+              <span className="text-[var(--muted)]">/{roundsPerGame}</span>
             </p>
             <p className="mt-2 text-sm text-[var(--muted)]">
               {phase === "memorize"
@@ -632,6 +799,7 @@ export function ColorGame() {
                 value={gameVariant === "sound" ? "Fréquence (son)" : "Couleur"}
               />
               <Stat label="Difficulté" value={difficulty === "easy" ? "Facile" : "Difficile"} />
+              <Stat label="Manches" value={String(roundsPerGame)} />
               <Stat
                 label="Score live"
                 value={
@@ -704,6 +872,8 @@ function HomePanel({
   onDifficulty,
   gameVariant,
   onGameVariant,
+  roundsPerGame,
+  onRoundsPerGame,
 }: {
   onSolo: () => void;
   onMulti: () => void;
@@ -712,6 +882,8 @@ function HomePanel({
   onDifficulty: (d: Difficulty) => void;
   gameVariant: GameVariant;
   onGameVariant: (v: GameVariant) => void;
+  roundsPerGame: RoundsCount;
+  onRoundsPerGame: (r: RoundsCount) => void;
 }) {
   return (
     <div className="opacity-100 transition-opacity duration-[400ms]">
@@ -727,8 +899,8 @@ function HomePanel({
       </h1>
       <p className="mt-8 max-w-lg text-lg leading-relaxed text-[var(--muted)] transition-colors duration-[350ms]">
         {gameVariant === "color"
-          ? `${ROUNDS_PER_GAME} manches couleur : palettes variées, mémorisation courte, puis reconstitution HSB — score perceptuel CIEDE2000.`
-          : `${ROUNDS_PER_GAME} manches son : ton continu bref, plage Hz élargie (tirage log), curseur — score ERB-rate (comme sur dialed.gg).`}
+          ? `${roundsPerGame} manches couleur : palettes variées, mémorisation courte, puis reconstitution HSB — score perceptuel CIEDE2000.`
+          : `${roundsPerGame} manches son : ton continu bref, plage Hz élargie (tirage log), curseur — score ERB-rate (comme sur dialed.gg).`}
       </p>
 
       <p className="mt-8 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
@@ -782,6 +954,26 @@ function HomePanel({
         >
           Difficile
         </button>
+      </div>
+
+      <p className="mt-10 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
+        Manches (score max = 10 × manches)
+      </p>
+      <div className="mt-3 flex flex-wrap gap-3">
+        {ROUNDS_OPTIONS.map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onRoundsPerGame(n)}
+            className={`rounded-full px-6 py-3 text-[11px] font-semibold uppercase tracking-[0.2em] transition-[background-color,color,transform] duration-[350ms] ${
+              roundsPerGame === n
+                ? "bg-[var(--foreground)] text-[var(--background)]"
+                : "border border-[var(--border)] bg-transparent text-[var(--muted)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+            }`}
+          >
+            {n} manches
+          </button>
+        ))}
       </div>
 
       <div className="mt-14 flex flex-col gap-4 sm:flex-row sm:flex-wrap">
@@ -873,6 +1065,8 @@ function LobbyPanel({
   isHost,
   shareUrl,
   gameVariant,
+  roundsPerGame,
+  useRemoteMulti,
   onStart,
   onBack,
 }: {
@@ -882,7 +1076,9 @@ function LobbyPanel({
   isHost: boolean;
   shareUrl: string;
   gameVariant: GameVariant;
-  onStart: () => void;
+  roundsPerGame: RoundsCount;
+  useRemoteMulti: boolean;
+  onStart: () => void | Promise<void>;
   onBack: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -909,12 +1105,14 @@ function LobbyPanel({
         Salon · {roomId}
       </h2>
       <p className="mt-4 text-sm text-[var(--muted)]">
-        Les joueurs qui rejoignent le lien avec le même ID apparaissent ici (même
-        navigateur / onglets — synchronisation locale). Partie :{" "}
+        {useRemoteMulti
+          ? "Les joueurs qui ouvrent le lien ou entrent l’ID sur n’importe quel appareil rejoignent ce salon (Supabase Realtime). "
+          : "Mode local : même navigateur / onglets uniquement. Configure NEXT_PUBLIC_SUPABASE_* pour le jeu en ligne. "}
+        Partie :{" "}
         <span className="text-[var(--foreground)]">
           {gameVariant === "sound" ? "Son" : "Couleur"}
         </span>
-        .
+        , {roundsPerGame} manches.
       </p>
       {shareUrl && (
         <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4">
@@ -977,13 +1175,19 @@ function RoomPanel({
   onJoin,
   shareUrl,
   onBack,
+  useRemoteMulti,
+  roundsPerGame,
+  onRoundsPerGame,
 }: {
   roomId: string;
   onRoomId: (s: string) => void;
-  onCreate: () => void;
-  onJoin: () => void;
+  onCreate: () => void | Promise<void>;
+  onJoin: () => void | Promise<void>;
   shareUrl: string;
   onBack: () => void;
+  useRemoteMulti: boolean;
+  roundsPerGame: RoundsCount;
+  onRoundsPerGame: (r: RoundsCount) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
@@ -1009,7 +1213,29 @@ function RoomPanel({
         Après avoir choisi ton pseudo, tu arrives au salon : tu vois qui a rejoint.
         L’hôte lance la partie quand tout le monde est prêt — même graine, même
         ordre pour tous.
+        {useRemoteMulti
+          ? " Connexion par lien partagé ou en saisissant l’ID de salle exact."
+          : ""}
       </p>
+      <p className="mt-6 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
+        Manches pour la nouvelle salle
+      </p>
+      <div className="mt-3 flex flex-wrap gap-3">
+        {ROUNDS_OPTIONS.map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onRoundsPerGame(n)}
+            className={`rounded-full px-5 py-2.5 text-[11px] font-semibold uppercase tracking-[0.2em] transition-[background-color,color] duration-[350ms] ${
+              roundsPerGame === n
+                ? "bg-[var(--foreground)] text-[var(--background)]"
+                : "border border-[var(--border)] text-[var(--muted)] hover:border-[var(--foreground)]"
+            }`}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
       <div className="mt-10 flex flex-col gap-4 sm:flex-row">
         <button
           type="button"
@@ -1403,6 +1629,8 @@ function ResultsPanel({
   playerName,
   mode,
   roomId,
+  multiLeaderboard,
+  showMultiLeaderboard,
   onHome,
 }: {
   gameVariant: GameVariant;
@@ -1416,6 +1644,8 @@ function ResultsPanel({
   playerName: string;
   mode: Mode;
   roomId: string;
+  multiLeaderboard: LeaderboardRow[];
+  showMultiLeaderboard: boolean;
   onHome: () => void;
 }) {
   return (
@@ -1435,6 +1665,34 @@ function ResultsPanel({
           </>
         )}
       </p>
+
+      {showMultiLeaderboard && multiLeaderboard.length > 0 && (
+        <div className="mt-10 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)]/80 p-6">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
+            Classement de la salle
+          </h3>
+          <p className="mt-2 text-xs text-[var(--muted)]">
+            Classement par score total (puis temps d’arrivée en cas d’égalité). Se met à jour
+            quand les joueurs terminent.
+          </p>
+          <ol className="mt-6 space-y-3">
+            {multiLeaderboard.map((row) => (
+              <li
+                key={`${row.rank}-${row.name}`}
+                className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border)] px-4 py-3"
+              >
+                <span className="font-display text-2xl tabular-nums text-[var(--accent)]">
+                  {row.rank}
+                </span>
+                <span className="flex-1 font-medium text-[var(--foreground)]">{row.name}</span>
+                <span className="font-mono text-lg tabular-nums text-[var(--foreground)]">
+                  {row.total.toFixed(2)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
 
       <div className="mt-10 space-y-8">
         <h3 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">

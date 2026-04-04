@@ -1,4 +1,4 @@
-import { MAX_GAME_SCORE, ROUNDS_PER_GAME } from "@/lib/gameConstants";
+import { DEFAULT_ROUNDS, maxScoreForRounds } from "@/lib/gameConstants";
 import { SOUND_RANGE_HZ } from "@/lib/soundScoring";
 import Link from "next/link";
 
@@ -40,11 +40,14 @@ export default function SoundScoringPage() {
           même score du grave à l’aigu.
         </p>
         <p>
-          <strong className="font-medium text-[var(--foreground)]">{ROUNDS_PER_GAME} manches</strong>
+          <strong className="font-medium text-[var(--foreground)]">5 ou 10 manches</strong>
           ,{" "}
           <strong className="font-medium text-[var(--foreground)]">0 à 10</strong> par
-          manche, <strong className="font-medium text-[var(--foreground)]">{MAX_GAME_SCORE}</strong>{" "}
-          max.
+          manche (ex.{" "}
+          <strong className="font-medium text-[var(--foreground)]">
+            {maxScoreForRounds(DEFAULT_ROUNDS)}
+          </strong>{" "}
+          max avec {DEFAULT_ROUNDS} manches).
         </p>
       </div>
 

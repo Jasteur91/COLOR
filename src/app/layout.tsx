@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Bebas_Neue, DM_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/context/ThemeContext";
-import { ROUNDS_PER_GAME } from "@/lib/gameConstants";
+import { DEFAULT_ROUNDS } from "@/lib/gameConstants";
 import { Analytics } from "@vercel/analytics/next";
 
 const display = Bebas_Neue({
@@ -23,7 +23,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Dialed — Mémoire des couleurs",
-  description: `${ROUNDS_PER_GAME} manches couleur ou son : mémorise puis reconstitue — scores perceptuels CIELAB et ERB.`,
+  description: `Jeu ${DEFAULT_ROUNDS} ou 5 manches — couleur ou son, scores perceptuels CIELAB et ERB.`,
 };
 
 export default function RootLayout({
