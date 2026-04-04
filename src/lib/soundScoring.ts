@@ -9,6 +9,20 @@ export const SOUND_RANGE_HZ = {
   hard: { min: 60, max: 1400 },
 } as const;
 
+/** Temps d’écoute par manche (son continu) — plus long que le mode couleur, style dialed.gg/sound. */
+export const MEMORIZE_SOUND_ROUND_SECONDS = { easy: 48, hard: 30 } as const;
+
+/** Curseur « musical » : position 0–1 ↔ Hz sur échelle logarithmique (comme dialed). */
+export function hzToLogPosition(hz: number, min: number, max: number): number {
+  const c = Math.max(min, Math.min(max, hz));
+  return Math.log(c / min) / Math.log(max / min);
+}
+
+export function hzFromLogPosition(t: number, min: number, max: number): number {
+  const x = Math.max(0, Math.min(1, t));
+  return min * Math.pow(max / min, x);
+}
+
 /** ERB-rate(f) = 21.4 * log10(1 + 0.00437 * f) */
 export function erbRate(f: number): number {
   return 21.4 * Math.log10(1 + 0.00437 * f);

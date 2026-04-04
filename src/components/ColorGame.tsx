@@ -22,7 +22,12 @@ import {
   randomFreqHz,
   randomHsb,
 } from "@/lib/seedRandom";
-import { SOUND_RANGE_HZ, scoreSoundRound } from "@/lib/soundScoring";
+import {
+  MEMORIZE_SOUND_ROUND_SECONDS,
+  hzFromLogPosition,
+  SOUND_RANGE_HZ,
+  scoreSoundRound,
+} from "@/lib/soundScoring";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -51,6 +56,11 @@ type Phase =
 /** Temps pour mémoriser chaque couleur (une par une), puis reconstitution. */
 const MEMORIZE_ROUND_SECONDS = { easy: 12, hard: 6 };
 
+function centerGuessHz(difficulty: Difficulty): number {
+  const { min, max } = SOUND_RANGE_HZ[difficulty];
+  return hzFromLogPosition(0.5, min, max);
+}
+
 function generateColors(seedStr: string): HSB[] {
   const rng = createSeededRandom(hashString(seedStr));
   return Array.from({ length: 5 }, () => randomHsb(rng));
@@ -60,35 +70,6 @@ function generateSoundTargets(seedStr: string, difficulty: Difficulty): number[]
   const rng = createSeededRandom(hashString(seedStr));
   const { min, max } = SOUND_RANGE_HZ[difficulty];
   return Array.from({ length: 5 }, () => randomFreqHz(rng, min, max));
-}
-
-function playTone(
-  on: boolean,
-  freq: number,
-  durationMs = 200,
-  gain = 0.1
-) {
-  if (!on || typeof window === "undefined") return;
-  try {
-    const ctx = new AudioContext();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = "sine";
-    o.connect(g);
-    g.connect(ctx.destination);
-    o.frequency.value = freq;
-    const t0 = ctx.currentTime;
-    g.gain.setValueAtTime(0, t0);
-    g.gain.linearRampToValueAtTime(gain, t0 + 0.04);
-    g.gain.linearRampToValueAtTime(0.001, t0 + durationMs / 1000);
-    o.start(t0);
-    setTimeout(() => {
-      o.stop();
-      ctx.close();
-    }, durationMs + 100);
-  } catch {
-    /* ignore */
-  }
 }
 
 function playBeep(on: boolean, freq: number) {
@@ -185,8 +166,7 @@ export function ColorGame() {
               : soloSeedRef.current;
         setColors([]);
         setTargetsHz(generateSoundTargets(`${seedBase}-sound`, difficulty));
-        const { min, max } = SOUND_RANGE_HZ[difficulty];
-        setGuessFreq(Math.round((min + max) / 2));
+        setGuessFreq(centerGuessHz(difficulty));
         setGuess({ h: 180, s: 50, b: 50 });
       }
       setPhase("memorize");
@@ -261,7 +241,11 @@ export function ColorGame() {
     const hasColor = gameVariant === "color" && colors[roundIndex];
     const hasSound = gameVariant === "sound" && targetsHz[roundIndex] !== undefined;
     if (!hasColor && !hasSound) return;
-    const duration = MEMORIZE_ROUND_SECONDS[difficulty] * 1000;
+    const durationSec =
+      gameVariant === "sound"
+        ? MEMORIZE_SOUND_ROUND_SECONDS[difficulty]
+        : MEMORIZE_ROUND_SECONDS[difficulty];
+    const duration = durationSec * 1000;
     const start = Date.now();
     const tick = setInterval(() => {
       setMemProgress(Math.min(1, (Date.now() - start) / duration));
@@ -274,8 +258,7 @@ export function ColorGame() {
         if (gameVariant === "color") {
           setGuess({ h: 180, s: 50, b: 50 });
         } else {
-          const { min, max } = SOUND_RANGE_HZ[difficulty];
-          setGuessFreq(Math.round((min + max) / 2));
+          setGuessFreq(centerGuessHz(difficulty));
         }
         playBeep(soundOn, 440);
         setPhaseBridge(false);
@@ -296,14 +279,51 @@ export function ColorGame() {
     soundOn,
   ]);
 
+  /** Son sinusoïdal continu pendant la mémorisation (réf. dialed.gg/sound). */
   useEffect(() => {
-    if (phase !== "memorize" || gameVariant !== "sound" || !targetsHz[roundIndex]) {
+    if (phase !== "memorize" || gameVariant !== "sound" || !soundOn) return;
+    const hz = targetsHz[roundIndex];
+    if (hz === undefined) return;
+    let ctx: AudioContext | null = null;
+    let osc: OscillatorNode | null = null;
+    let gain: GainNode | null = null;
+    try {
+      ctx = new AudioContext();
+      osc = ctx.createOscillator();
+      gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = hz;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      const t0 = ctx.currentTime;
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(0.12, t0 + 0.08);
+      osc.start(t0);
+    } catch {
       return;
     }
-    const hz = targetsHz[roundIndex];
-    playTone(soundOn, hz, 240, 0.12);
-    const id = setInterval(() => playTone(soundOn, hz, 240, 0.12), 2200);
-    return () => clearInterval(id);
+    return () => {
+      const c = ctx;
+      const o = osc;
+      const g = gain;
+      if (!c || !o || !g) return;
+      try {
+        const t = c.currentTime;
+        g.gain.cancelScheduledValues(t);
+        g.gain.setValueAtTime(g.gain.value, t);
+        g.gain.linearRampToValueAtTime(0.0001, t + 0.1);
+        setTimeout(() => {
+          try {
+            o.stop();
+            void c.close();
+          } catch {
+            /* ignore */
+          }
+        }, 150);
+      } catch {
+        void c.close();
+      }
+    };
   }, [phase, roundIndex, gameVariant, targetsHz, soundOn]);
 
   const submitRound = useCallback(() => {
@@ -337,8 +357,7 @@ export function ColorGame() {
     setRoundIndex((i) => i + 1);
     setGuess({ h: 180, s: 50, b: 50 });
     if (gameVariant === "sound") {
-      const { min, max } = SOUND_RANGE_HZ[difficulty];
-      setGuessFreq(Math.round((min + max) / 2));
+      setGuessFreq(centerGuessHz(difficulty));
     }
     setMemProgress(0);
     setPhase("memorize");
@@ -382,8 +401,7 @@ export function ColorGame() {
     if (gameVariant === "color") {
       setGuess({ h: 180, s: 50, b: 50 });
     } else {
-      const { min, max } = SOUND_RANGE_HZ[difficulty];
-      setGuessFreq(Math.round((min + max) / 2));
+      setGuessFreq(centerGuessHz(difficulty));
     }
     setTimeout(() => {
       playBeep(soundOn, 520);
@@ -551,6 +569,7 @@ export function ColorGame() {
               <RecallSoundPanel
                 key={`rec-s-${roundIndex}`}
                 roundIndex={roundIndex}
+                targetHz={targetsHz[roundIndex]!}
                 guessFreq={guessFreq}
                 onGuessFreq={setGuessFreq}
                 difficulty={difficulty}
@@ -1184,7 +1203,7 @@ function MemorizeSoundPanel({
   onSkip: () => void;
 }) {
   void _hz;
-  const totalSec = MEMORIZE_ROUND_SECONDS[difficulty];
+  const totalSec = MEMORIZE_SOUND_ROUND_SECONDS[difficulty];
   const secondsLeft = Math.max(0, Math.ceil((1 - memProgress) * totalSec));
 
   return (
@@ -1196,14 +1215,16 @@ function MemorizeSoundPanel({
         Manche {roundIndex + 1} sur 5 · tonalité
       </h2>
       <p className="mt-3 text-sm text-[var(--muted)]">
-        Le son se répète pendant le compte à rebours. Mémorise la hauteur — pas les
-        chiffres.
+        Un ton pur et continu pendant tout le temps imparti. Mémorise la hauteur —
+        pas les chiffres.
       </p>
       <RoundProgressDots roundIndex={roundIndex} />
       <div className="mt-10 flex flex-col items-center gap-10 sm:flex-row sm:items-center sm:justify-between">
-        <div className="sound-mem-visual flex aspect-square w-full max-w-[min(100%,280px)] flex-col items-center justify-center rounded-3xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-inner">
-          <span className="font-display text-6xl text-[var(--accent)]">♪</span>
-          <span className="mt-6 text-center text-sm text-[var(--muted)]">
+        <div className="sound-mem-visual sound-mem-wave relative flex aspect-square w-full max-w-[min(100%,280px)] flex-col items-center justify-center overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-inner">
+          <span className="relative z-[1] font-display text-6xl text-[var(--accent)] [animation:sound-mem-note_2.4s_ease-in-out_infinite]">
+            ♪
+          </span>
+          <span className="relative z-[1] mt-6 px-4 text-center text-sm text-[var(--muted)]">
             Concentre-toi sur la hauteur — pas de valeur affichée.
           </span>
         </div>
@@ -1286,6 +1307,7 @@ function RecallPanel({
 
 function RecallSoundPanel({
   roundIndex,
+  targetHz,
   guessFreq,
   onGuessFreq,
   difficulty,
@@ -1293,6 +1315,7 @@ function RecallSoundPanel({
   onSubmit,
 }: {
   roundIndex: number;
+  targetHz: number;
   guessFreq: number;
   onGuessFreq: (hz: number) => void;
   difficulty: Difficulty;
@@ -1308,8 +1331,8 @@ function RecallSoundPanel({
         Retrouve la fréquence
       </h2>
       <p className="mt-4 max-w-lg text-sm leading-relaxed text-[var(--muted)]">
-        Règle le curseur pour retrouver la tonalité entendue. Tu peux préécouter ton
-        réglage avant de valider.
+        Curseur logarithmique : glisse pour entendre en continu, comme sur la démo
+        sound-scoring. Le score ERB se met à jour en direct — la cible reste cachée.
       </p>
       <RoundProgressDots roundIndex={roundIndex} />
       <div className="mt-10">
@@ -1317,7 +1340,8 @@ function RecallSoundPanel({
           valueHz={guessFreq}
           onChangeHz={onGuessFreq}
           difficulty={difficulty}
-          onPreview={() => playTone(soundOn, guessFreq, 280, 0.12)}
+          soundOn={soundOn}
+          targetHz={targetHz}
         />
       </div>
       <button

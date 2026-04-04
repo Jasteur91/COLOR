@@ -27,8 +27,12 @@ export default function SoundScoringPage() {
 
       <div className="mt-10 max-w-2xl space-y-6 text-lg leading-relaxed text-[var(--muted)]">
         <p>
-          Tu entends une fréquence, puis tu la retrouves avec un curseur en Hz. Le
-          score ne compare pas les Hz « à la règle » : cible et essai sont convertis
+          Tu entends un ton continu, puis tu le retrouves avec un curseur en Hz sur
+          une <strong className="font-medium text-[var(--foreground)]">échelle logarithmique</strong>{" "}
+          (même sensation de pas que sur dialed). En jeu, tu peux{" "}
+          <strong className="font-medium text-[var(--foreground)]">écouter en continu</strong>{" "}
+          pendant que tu glisses ; le score ERB peut s’afficher en direct sans montrer
+          la cible. Le score ne compare pas les Hz « à la règle » : cible et essai sont convertis
           en <strong className="font-medium text-[var(--foreground)]">échelle ERB-rate</strong>
           , comme en psychoacoustique, pour que la même précision perçue donne le
           même score du grave à l’aigu.

@@ -147,3 +147,72 @@ body {
 .recall-stage-enter {
   animation: recall-stage-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
+@keyframes sound-bar-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 0.92;
+    transform: scaleY(1.06);
+  }
+}
+
+@keyframes sound-mem-note {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.04);
+    filter: drop-shadow(0 0 14px var(--accent-glow));
+  }
+}
+
+@keyframes sound-mem-wave-line {
+  0% {
+    transform: translateX(-50%) scaleX(0.6);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translateX(-50%) scaleX(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateX(-50%) scaleX(0.6);
+    opacity: 0.35;
+  }
+}
+
+.sound-mem-wave::before,
+.sound-mem-wave::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 120%;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent),
+    var(--accent-glow),
+    var(--accent),
+    transparent
+  );
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.sound-mem-wave::before {
+  bottom: 32%;
+  animation: sound-mem-wave-line 2.8s ease-in-out infinite;
+}
+
+.sound-mem-wave::after {
+  bottom: 22%;
+  animation: sound-mem-wave-line 2.8s ease-in-out infinite 0.35s;
+}
