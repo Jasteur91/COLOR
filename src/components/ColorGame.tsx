@@ -1333,6 +1333,7 @@ function RecallPanel({
 function RecallSoundPanel({
   roundIndex,
   roundsTotal,
+  targetHz,
   guessFreq,
   onGuessFreq,
   difficulty,

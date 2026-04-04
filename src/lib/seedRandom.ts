@@ -69,12 +69,10 @@ const COLOR_PALETTES: ColorPalette[] = (() => {
   // 30 secteurs ~12° + léger chevauchement → couvre tout le spectre avec des teintes nettement différentes
   for (let h = 0; h < 360; h += 12) {
     const k = (h / 12) | 0;
-    const vivid = k % 3 === 0;
-    const pastel = k % 3 === 1;
-    const deep = k % 3 === 2;
-    if (vivid) {
+    const m = k % 3;
+    if (m === 0) {
       out.push(band(h, 18, 52, 100, 28, 92));
-    } else if (pastel) {
+    } else if (m === 1) {
       out.push(band(h, 18, 18, 48, 72, 97));
     } else {
       out.push(band(h, 18, 62, 100, 14, 48));
