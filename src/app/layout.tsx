@@ -21,20 +21,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const adsenseAccount = process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ACCOUNT?.trim();
-
-export const metadata: Metadata = adsenseAccount
-  ? {
-      title: "Dialed — Mémoire des couleurs",
-      description: `Jeu ${DEFAULT_ROUNDS} ou 5 manches — couleur ou son, scores perceptuels CIELAB et ERB.`,
-      other: {
-        "google-adsense-account": adsenseAccount,
-      },
-    }
-  : {
-      title: "Dialed — Mémoire des couleurs",
-      description: `Jeu ${DEFAULT_ROUNDS} ou 5 manches — couleur ou son, scores perceptuels CIELAB et ERB.`,
-    };
+export const metadata: Metadata = {
+  title: "Dialed — Mémoire des couleurs",
+  description: `Jeu ${DEFAULT_ROUNDS} ou 5 manches — couleur ou son, scores perceptuels CIELAB et ERB.`,
+};
 
 export default function RootLayout({
   children,
