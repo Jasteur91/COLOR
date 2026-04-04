@@ -1330,16 +1330,7 @@ function RecallPanel({
   );
 }
 
-function RecallSoundPanel({
-  roundIndex,
-  roundsTotal,
-  targetHz,
-  guessFreq,
-  onGuessFreq,
-  difficulty,
-  soundOn,
-  onSubmit,
-}: {
+type RecallSoundPanelProps = {
   roundIndex: number;
   roundsTotal: number;
   targetHz: number;
@@ -1348,7 +1339,19 @@ function RecallSoundPanel({
   difficulty: Difficulty;
   soundOn: boolean;
   onSubmit: () => void;
-}) {
+};
+
+function RecallSoundPanel(props: RecallSoundPanelProps) {
+  const {
+    roundIndex,
+    roundsTotal,
+    guessFreq,
+    onGuessFreq,
+    difficulty,
+    soundOn,
+    onSubmit,
+  } = props;
+
   return (
     <div className="recall-stage-enter game-panel-enter max-w-xl">
       <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[var(--accent)]">
@@ -1368,7 +1371,7 @@ function RecallSoundPanel({
           onChangeHz={onGuessFreq}
           difficulty={difficulty}
           soundOn={soundOn}
-          targetHz={targetHz}
+          targetHz={props.targetHz}
         />
       </div>
       <button
