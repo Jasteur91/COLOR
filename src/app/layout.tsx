@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { DEFAULT_ROUNDS } from "@/lib/gameConstants";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const display = Bebas_Neue({
   weight: "400",
@@ -38,6 +39,7 @@ export default function RootLayout({
       >
         <ThemeProvider>{children}</ThemeProvider>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
