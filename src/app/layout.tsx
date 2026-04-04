@@ -31,8 +31,15 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const adsenseAccount = process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ACCOUNT;
+
   return (
     <html lang="fr" suppressHydrationWarning className="h-full">
+      <head>
+        {adsenseAccount ? (
+          <meta name="google-adsense-account" content={adsenseAccount} />
+        ) : null}
+      </head>
       <body
         className={`${display.variable} ${body.variable} ${geistMono.variable} min-h-full antialiased`}
       >
