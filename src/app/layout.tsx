@@ -21,17 +21,16 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const adsenseAccount = process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ACCOUNT?.trim();
+
 export const metadata: Metadata = {
   title: "Dialed — Mémoire des couleurs",
   description: `Jeu ${DEFAULT_ROUNDS} ou 5 manches — couleur ou son, scores perceptuels CIELAB et ERB.`,
-  ...(process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ACCOUNT
+  other: adsenseAccount
     ? {
-        other: {
-          "google-adsense-account":
-            process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ACCOUNT,
-        },
+        "google-adsense-account": adsenseAccount,
       }
-    : {}),
+    : undefined,
 };
 
 export default function RootLayout({
